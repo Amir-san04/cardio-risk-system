@@ -1,29 +1,63 @@
 version: '3.8'
 
 services:
-  # 1. База данных
+  # 1. База данных PostgreSQL
   db:
     image: postgres:15
+    container_name: cardio_db
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
       POSTGRES_DB: cardio_db
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d cardio_db"]  # ⬅️ ДОБАВИЛ -d cardio_db
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - cardio_network
 
-  # 2. Твой сервис (Core)
+  # 2. Core Service (основной сервис)
   core-service:
     build: ./core-service
+    container_name: cardio_core
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://user:password@db:5432/cardio_db
+      SECRET_KEY: super-secret-key-change-me-in-production
+      PREDICTION_SERVICE_URL: http://prediction-service:8001
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./core-service:/app
+    restart: unless-stopped
+    networks:
+      - cardio_network
 
-# 3. Сервис Алидара (Prediction)
+  # 3. Prediction Service (ML сервис Алидара)
   prediction-service:
     build: ./prediction-service
+    container_name: cardio_prediction
     ports:
       - "8001:8001"
-    command: uvicorn main:app --host 0.0.0.0 --port 8001
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+    volumes:
+      - ./prediction-service:/app
+    restart: unless-stopped
+    networks:
+      - cardio_network
+
+volumes:
+  postgres_data:
+
+networks:
+  cardio_network:
+    driver: bridge

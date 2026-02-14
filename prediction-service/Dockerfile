@@ -1,13 +1,16 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Копируем зависимости
+# Копируем и устанавливаем зависимости
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем код сервиса
+# Копируем код приложения
 COPY . .
 
-# Запускаем на порту 8001
+# Порт приложения
+EXPOSE 8001
+
+# Команда запуска
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
