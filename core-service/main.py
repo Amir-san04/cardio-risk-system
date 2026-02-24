@@ -107,11 +107,32 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
+
 class PredictionRequest(BaseModel):
     """Схема для запроса предсказания"""
     age: int
+    sex: int  # 0 = female, 1 = male
     cholesterol: int
-    # Добавь другие параметры, которые нужны для ML модели
+    fbs: int  # fasting blood sugar > 120 mg/dl (1 = true; 0 = false)
+    restecg: int  # resting electrocardiographic results (0, 1, 2)
+    
+    @validator('sex')
+    def validate_sex(cls, v):
+        if v not in [0, 1]:
+            raise ValueError('sex must be 0 (female) or 1 (male)')
+        return v
+    
+    @validator('fbs')
+    def validate_fbs(cls, v):
+        if v not in [0, 1]:
+            raise ValueError('fbs must be 0 or 1')
+        return v
+    
+    @validator('restecg')
+    def validate_restecg(cls, v):
+        if v not in [0, 1, 2]:
+            raise ValueError('restecg must be 0, 1, or 2')
+        return v
 
 
 # ============================================================================
@@ -345,28 +366,37 @@ def get_doctors(
 # ML PREDICTION ENDPOINTS
 # ============================================================================
 
-@app.post("/predict")
-async def get_prediction(
-    prediction_data: PredictionRequest,
-    current_user: User = Depends(require_role([UserRole.DOCTOR, UserRole.ADMIN]))
-):
-    """Получить предсказание риска от ML сервиса (только врачи и админы)"""
+@app.get("/predict-test")
+async def get_prediction_test():
+    """Тестовый endpoint для проверки связи с ML сервисом"""
+    test_data = {
+        "age": 45,
+        "sex": 1,  # male
+        "cholesterol": 200,
+        "fbs": 0,  # normal
+        "restecg": 0  # normal
+    }
+    
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 f"{PREDICTION_SERVICE_URL}/predict",
-                json=prediction_data.dict()
+                json=test_data
             )
             response.raise_for_status()
             prediction_result = response.json()
         
         return {
-            "status": "success",
-            "prediction": prediction_result,
-            "requested_by": {
-                "user_id": current_user.id,
-                "role": current_user.role.value
-            }
+            "status": "Connection successful",
+            "test_data": test_data,
+            "prediction_result": prediction_result
+        }
+    
+    except httpx.HTTPError as e:
+        return {
+            "status": "Connection failed",
+            "error": str(e),
+            "prediction_service_url": PREDICTION_SERVICE_URL
         }
     
     except httpx.HTTPError as e:
