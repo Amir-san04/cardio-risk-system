@@ -1,11 +1,19 @@
 import pandas as pd
+import joblib
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import random
+from pathlib import Path
 
 app = FastAPI(title="Cardio Risk Prediction Service")
 
+MODEL_PATH = Path(__file__).parent.parent / "ml" / "model.joblib"
 
+try:
+    model = joblib.load(MODEL_PATH)
+    print("✅ Model loaded successfully")
+except Exception as e:
+    print("❌ Failed to load model:", e)
+    raise e
 
 class PredictionRequest(BaseModel):
     age: int
@@ -50,13 +58,13 @@ def predict_risk(data: PredictionRequest):
 
     # 3️⃣ Логика интерпретации риска
     if probability < 0.3:
-        level = "low"
+        level = "Low Risk"
         recs = ["Maintain healthy lifestyle"]
     elif probability < 0.7:
-        level = "medium"
+        level = "Medium Risk"
         recs = ["Monitor cholesterol", "Increase activity"]
     else:
-        level = "high"
+        level = "High Risk"
         recs = ["Consult cardiologist immediately"]
 
     # 4️⃣ Ответ
