@@ -14,7 +14,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d cardio_db"]  # ⬅️ ДОБАВИЛ -d cardio_db
+      test: ["CMD-SHELL", "pg_isready -U user -d cardio_db"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -22,7 +22,29 @@ services:
     networks:
       - cardio_network
 
-  # 2. Core Service (основной сервис)
+  # 2. MinIO для хранения файлов (S3-совместимое хранилище)
+  minio:
+    image: minio/minio:latest
+    container_name: cardio_minio
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - cardio_network
+
+  # 3. Core Service (основной сервис)
   core-service:
     build: ./core-service
     container_name: cardio_core
@@ -31,10 +53,18 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://user:password@db:5432/cardio_db
       SECRET_KEY: super-secret-key-change-me-in-production
       PREDICTION_SERVICE_URL: http://prediction-service:8001
+      # MinIO настройки
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: medical-files
+      MINIO_SECURE: "false"
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./core-service:/app
@@ -42,7 +72,7 @@ services:
     networks:
       - cardio_network
 
-  # 3. Prediction Service (ML сервис Алидара)
+  # 4. Prediction Service (ML сервис)
   prediction-service:
     build: ./prediction-service
     container_name: cardio_prediction
@@ -57,6 +87,7 @@ services:
 
 volumes:
   postgres_data:
+  minio_data:
 
 networks:
   cardio_network:

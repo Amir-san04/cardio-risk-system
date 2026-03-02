@@ -575,7 +575,6 @@ def get_examination(
 # ============================================================================
 # MEDICAL FILE ENDPOINTS (НОВЫЕ!)
 # ============================================================================
-
 @app.post("/examinations/{examination_id}/upload-file")
 async def upload_medical_file(
     examination_id: int,
@@ -613,15 +612,93 @@ async def upload_medical_file(
             detail="Unsupported file type. Allowed: .dcm, .pdf, .jpg, .png"
         )
     
-    # Сохраняем файл
-    file_path = os.path.join(UPLOAD_DIR, f"exam_{examination_id}_{file.filename}")
-    with open(file_path, "wb") as f:
-        content = await file.read()
+    # ============================================
+    # ИСПРАВЛЕНИЕ: Читаем файл ОДИН РАЗ
+    # ============================================
+    content = await file.read()
+    
+    # Сохраняем файл локально временно для DICOM парсинга
+    temp_file_path = os.path.join(UPLOAD_DIR, f"temp_{file.filename}")
+    with open(temp_file_path, "wb") as f:
         f.write(content)
     
-    # TODO: Здесь Амир должен добавить парсинг DICOM тегов с помощью pydicom
-    file_metadata = {"original_filename": file.filename, "size_bytes": len(content)}
+    # Формируем путь в MinIO
+    object_name = f"patient_{exam.patient_id}/exam_{examination_id}/{file.filename}"
     
+    # Загружаем в MinIO используя bytes (а не файл!)
+    try:
+        from minio_storage import get_storage
+        storage = get_storage()
+        
+        # Определяем content_type
+        content_type_map = {
+            'DICOM': 'application/dicom',
+            'PDF': 'application/pdf',
+            'JPG': 'image/jpeg'
+        }
+        content_type = content_type_map.get(file_type, 'application/octet-stream')
+        
+        # Загружаем bytes напрямую
+        file_url = storage.upload_bytes(content, object_name, content_type)
+        
+        if not file_url:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to upload file to storage"
+            )
+    
+    except Exception as e:
+        # Удаляем временный файл в случае ошибки
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Storage error: {str(e)}"
+        )
+    
+    # Парсим DICOM метаданные (если это DICOM)
+    file_metadata = {
+        "original_filename": file.filename,
+        "size_bytes": len(content)
+    }
+    
+    if file_type == 'DICOM':
+        try:
+            from dicom_parser import parse_dicom_file
+            dicom_metadata = parse_dicom_file(temp_file_path)
+            
+            if dicom_metadata:
+                file_metadata.update(dicom_metadata)
+                print(f"✅ DICOM parsed successfully: {dicom_metadata.get('modality', 'Unknown')} scan")
+            else:
+                print("⚠️ DICOM parsing failed, using basic metadata")
+        except Exception as e:
+            print(f"⚠️ Error parsing DICOM: {str(e)}")
+    
+    # Удаляем временный файл
+    if os.path.exists(temp_file_path):
+        os.remove(temp_file_path)
+    
+    # Создаем запись в БД
+    new_file = MedicalFile(
+        examination_id=examination_id,
+        file_url=file_url,
+        file_type=file_type,
+        file_metadata=file_metadata
+    )
+    
+    db.add(new_file)
+    db.commit()
+    db.refresh(new_file)
+    
+    return {
+        "message": "File uploaded successfully",
+        "file_id": new_file.id,
+        "file_type": file_type,
+        "file_url": file_url,
+        "size_bytes": len(content)
+    }
+
     # Создаем запись в БД
     new_file = MedicalFile(
         examination_id=examination_id,
