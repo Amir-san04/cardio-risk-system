@@ -37,3 +37,19 @@ pipeline.fit(X_train, y_train)
 joblib.dump(pipeline, "model.joblib")
 
 print("✅ Model trained with features:", features)
+
+# 8. Feature importance (влияние признаков)
+
+model = pipeline.named_steps["model"]
+
+importance = pd.DataFrame({
+    "Feature": features,
+    "Coefficient": model.coef_[0]
+})
+
+importance["Absolute Impact"] = importance["Coefficient"].abs()
+
+importance = importance.sort_values(by="Absolute Impact", ascending=False)
+
+print("\n📊 Feature Influence on Target:")
+print(importance)
