@@ -1,17 +1,20 @@
-// frontend/src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import useAuthStore from './store/authStore'; // zustand store из предыдущих сообщений
+import { useEffect } from 'react';
+import useAuthStore from './store/authStore';
 import MainLayout from './layouts/MainLayout';
+
 import Dashboard from './pages/Dashboard';
 import RiskAssessment from './pages/RiskAssessment';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import Unauthorized from './pages/Unauthorized'; // простая страница "Доступ запрещён"
+import Unauthorized from './pages/Unauthorized';
+import PatientsTable from './components/PatientsTable';
 
 function ProtectedRoute({ children, allowedRoles = [] }) {
-  const { isAuthenticated, role } = useAuthStore();
+  const { token, role } = useAuthStore();
+  const isAuthenticated = !!token;
 
-  if (!isAuthenticated()) {
+  if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
@@ -23,15 +26,21 @@ function ProtectedRoute({ children, allowedRoles = [] }) {
 }
 
 export default function App() {
+  const { init, token } = useAuthStore();
+  const isAuthenticated = !!token;
+
+  // Инициализируем стор при первом запуске
+  useEffect(() => {
+    init();
+  }, [init]);
+
   return (
     <BrowserRouter>
       <Routes>
-        {/* Публичные страницы */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/unauthorized" element={<Unauthorized />} />
 
-        {/* Защищённые страницы внутри MainLayout */}
         <Route element={<MainLayout />}>
           <Route
             path="/dashboard"
@@ -49,19 +58,18 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          {/* Можно добавить /patients только для doctor */}
           <Route
             path="/patients"
             element={
               <ProtectedRoute allowedRoles={['doctor', 'admin']}>
-                <PatientsTable /> {/* или отдельная страница */}
+                <PatientsTable />
               </ProtectedRoute>
             }
           />
         </Route>
 
-        {/* Редирект с корня */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
   );

@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
@@ -19,16 +20,13 @@ from models import Base, User, UserRole, Examination, MedicalFile, RiskPredictio
 # КОНФИГУРАЦИЯ
 # ============================================================================
 
-# Получаем переменные окружения
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@db:5432/cardio_db")
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# URL сервиса предсказаний
 PREDICTION_SERVICE_URL = os.getenv("PREDICTION_SERVICE_URL", "http://prediction-service:8001")
 
-# Директория для хранения файлов (в продакшене используй S3/MinIO)
 UPLOAD_DIR = "/app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -38,9 +36,31 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Создаем таблицы в базе данных (в продакшене используй Alembic)
 Base.metadata.create_all(bind=engine)
+
+# ============================================================================
+# FASTAPI APP + CORS
+# ============================================================================
+
+app = FastAPI(
+    title="Cardio Risk Core Service",
+    description="Основной сервис системы оценки кардиориска",
+    version="1.0.0"
+)
+
+# CORS — самый первый!
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Исключаем OPTIONS из проверки авторизации — чтобы preflight прошёл
+@app.options("/{path:path}")
+async def options(path: str):
+    return {}
 
 # ============================================================================
 # НАСТРОЙКА БЕЗОПАСНОСТИ
@@ -50,15 +70,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer(auto_error=False)
 
 def get_password_hash(password: str) -> str:
-    """Хеширует пароль"""
     return pwd_context.hash(password)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Проверяет пароль"""
     return pwd_context.verify(plain_password, hashed_password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Создает JWT токен"""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -72,28 +89,23 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 # ============================================================================
 
 class UserCreate(BaseModel):
-    """Схема для регистрации пользователя"""
     email: EmailStr
     password: str
     full_name: str
     role: str = "patient"
     phone: Optional[str] = None
-    
-    # Дополнительные поля для пациента
     birth_date: Optional[date] = None
     gender: Optional[str] = None
-    
-    # Дополнительные поля для врача
     specialization: Optional[str] = None
     license_number: Optional[str] = None
-    
+
     @validator('role')
     def validate_role(cls, v):
         valid_roles = ['admin', 'doctor', 'patient']
         if v not in valid_roles:
             raise ValueError(f'Invalid role. Must be one of: {valid_roles}')
         return v
-    
+
     @validator('password')
     def validate_password(cls, v):
         if len(v) < 6:
@@ -102,13 +114,11 @@ class UserCreate(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    """Схема для входа"""
     email: EmailStr
     password: str
 
 
 class UserResponse(BaseModel):
-    """Схема для ответа с данными пользователя"""
     id: int
     email: str
     full_name: str
@@ -118,31 +128,30 @@ class UserResponse(BaseModel):
     gender: Optional[str]
     specialization: Optional[str]
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
 
 class PredictionRequest(BaseModel):
-    """Схема для запроса предсказания - параметры для ML модели"""
     age: int
-    sex: int  # 0 = female, 1 = male
+    sex: int
     cholesterol: int
-    fbs: int  # fasting blood sugar > 120 mg/dl (1 = true; 0 = false)
-    restecg: int  # resting electrocardiographic results (0, 1, 2)
-    
+    fbs: int
+    restecg: int
+
     @validator('sex')
     def validate_sex(cls, v):
         if v not in [0, 1]:
             raise ValueError('sex must be 0 (female) or 1 (male)')
         return v
-    
+
     @validator('fbs')
     def validate_fbs(cls, v):
         if v not in [0, 1]:
             raise ValueError('fbs must be 0 or 1')
         return v
-    
+
     @validator('restecg')
     def validate_restecg(cls, v):
         if v not in [0, 1, 2]:
@@ -150,16 +159,11 @@ class PredictionRequest(BaseModel):
         return v
 
 
-# ============================================================================
-# НОВЫЕ СХЕМЫ ДЛЯ EXAMINATIONS И FILES
-# ============================================================================
-
 class ExaminationCreate(BaseModel):
-    """Схема для создания обследования"""
     patient_id: int
-    exam_type: str  # "MRI Scan", "Blood Test", "General Checkup", "CT Scan"
+    exam_type: str
     complaints: Optional[str] = None
-    
+
     @validator('exam_type')
     def validate_exam_type(cls, v):
         valid_types = ['MRI Scan', 'Blood Test', 'General Checkup', 'CT Scan', 'ECG', 'X-Ray']
@@ -169,7 +173,6 @@ class ExaminationCreate(BaseModel):
 
 
 class ExaminationResponse(BaseModel):
-    """Схема для ответа с данными обследования"""
     id: int
     doctor_id: int
     patient_id: int
@@ -177,32 +180,29 @@ class ExaminationResponse(BaseModel):
     exam_type: str
     complaints: Optional[str]
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
 
 class MedicalFileResponse(BaseModel):
-    """Схема для ответа с данными медицинского файла"""
     id: int
     examination_id: int
     file_url: str
     file_type: str
     file_metadata: Optional[dict]
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
 
 class RiskPredictionCreate(BaseModel):
-    """Схема для создания прогноза риска"""
     examination_id: int
     prediction_data: PredictionRequest
 
 
 class RiskPredictionResponse(BaseModel):
-    """Схема для ответа с результатами прогноза"""
     id: int
     examination_id: int
     risk_score: float
@@ -210,7 +210,7 @@ class RiskPredictionResponse(BaseModel):
     ml_model_version: str
     explanation: Optional[dict]
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
@@ -220,7 +220,6 @@ class RiskPredictionResponse(BaseModel):
 # ============================================================================
 
 def get_db():
-    """Dependency для получения сессии БД"""
     db = SessionLocal()
     try:
         yield db
@@ -232,48 +231,33 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
-    """Получает текущего пользователя из JWT токена"""
-    
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"}
         )
-    
+
     try:
         token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         if email is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials"
-            )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
     except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+
     user = db.query(User).filter(User.email == email).first()
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is deactivated"
-        )
-    
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is deactivated")
+
     return user
 
 
 def require_role(required_roles: list[UserRole]):
-    """Dependency для проверки роли пользователя"""
     def role_checker(current_user: User = Depends(get_current_user)) -> User:
         if current_user.role not in required_roles:
             raise HTTPException(
@@ -285,23 +269,11 @@ def require_role(required_roles: list[UserRole]):
 
 
 # ============================================================================
-# FASTAPI APP
-# ============================================================================
-
-app = FastAPI(
-    title="Cardio Risk Core Service",
-    description="Основной сервис системы оценки кардиориска",
-    version="1.0.0"
-)
-
-
-# ============================================================================
 # ПУБЛИЧНЫЕ ENDPOINTS
 # ============================================================================
 
 @app.get("/")
 def read_root():
-    """Корневой endpoint"""
     return {
         "message": "Cardio Risk Core Service is running",
         "version": "1.0.0",
@@ -311,14 +283,12 @@ def read_root():
 
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
-    """Проверка здоровья сервиса"""
     try:
-        # Проверяем подключение к БД
         db.execute("SELECT 1")
         db_status = "connected"
     except Exception as e:
         db_status = f"error: {str(e)}"
-    
+
     return {
         "status": "healthy",
         "database": db_status,
@@ -332,16 +302,10 @@ def health_check(db: Session = Depends(get_db)):
 
 @app.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
-    """Регистрация нового пользователя"""
-    # Проверяем, нет ли уже такого email
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # Создаем нового пользователя
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
     hashed_password = get_password_hash(user_data.password)
     new_user = User(
         email=user_data.email,
@@ -354,40 +318,32 @@ def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
         specialization=user_data.specialization,
         license_number=user_data.license_number
     )
-    
+
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
+
     return new_user
 
 
 @app.post("/token")
 def login(form_data: LoginRequest, db: Session = Depends(get_db)):
-    """Вход в систему (получение JWT токена)"""
-    # Ищем пользователя
     user = db.query(User).filter(User.email == form_data.email).first()
-    
-    # Проверяем пароль
+
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"}
         )
-    
-    # Проверяем, активен ли пользователь
+
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is deactivated"
-        )
-    
-    # Создаем токен
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is deactivated")
+
     access_token = create_access_token(
         data={"sub": user.email, "role": user.role.value, "user_id": user.id}
     )
-    
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -402,7 +358,6 @@ def login(form_data: LoginRequest, db: Session = Depends(get_db)):
 
 @app.get("/me", response_model=UserResponse)
 def get_current_user_info(current_user: User = Depends(get_current_user)):
-    """Получить информацию о текущем пользователе"""
     return current_user
 
 
@@ -415,7 +370,6 @@ def get_all_users(
     current_user: User = Depends(require_role([UserRole.ADMIN])),
     db: Session = Depends(get_db)
 ):
-    """Получить список всех пользователей (только для админов)"""
     users = db.query(User).all()
     return {
         "total": len(users),
@@ -438,7 +392,6 @@ def get_doctors(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Получить список врачей"""
     doctors = db.query(User).filter(User.role == UserRole.DOCTOR).all()
     return {
         "total": len(doctors),
@@ -460,7 +413,6 @@ def get_patients(
     current_user: User = Depends(require_role([UserRole.DOCTOR, UserRole.ADMIN])),
     db: Session = Depends(get_db)
 ):
-    """Получить список пациентов (только врачи и админы)"""
     patients = db.query(User).filter(User.role == UserRole.PATIENT).all()
     return {
         "total": len(patients),
@@ -479,7 +431,7 @@ def get_patients(
 
 
 # ============================================================================
-# EXAMINATION ENDPOINTS (НОВЫЕ!)
+# EXAMINATION ENDPOINTS
 # ============================================================================
 
 @app.post("/examinations", response_model=ExaminationResponse, status_code=status.HTTP_201_CREATED)
@@ -488,31 +440,25 @@ def create_examination(
     current_user: User = Depends(require_role([UserRole.DOCTOR])),
     db: Session = Depends(get_db)
 ):
-    """Создать новое обследование (только врачи)"""
-    # Проверяем, существует ли пациент
     patient = db.query(User).filter(
         User.id == exam_data.patient_id,
         User.role == UserRole.PATIENT
     ).first()
-    
+
     if not patient:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Patient not found"
-        )
-    
-    # Создаем обследование
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
     new_exam = Examination(
         doctor_id=current_user.id,
         patient_id=exam_data.patient_id,
         exam_type=exam_data.exam_type,
         complaints=exam_data.complaints
     )
-    
+
     db.add(new_exam)
     db.commit()
     db.refresh(new_exam)
-    
+
     return new_exam
 
 
@@ -521,22 +467,13 @@ def get_examinations(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Получить список обследований"""
-    # Если врач - показываем его обследования
-    # Если пациент - показываем только его обследования
-    # Если админ - показываем все
-    
     if current_user.role == UserRole.ADMIN:
         examinations = db.query(Examination).all()
     elif current_user.role == UserRole.DOCTOR:
-        examinations = db.query(Examination).filter(
-            Examination.doctor_id == current_user.id
-        ).all()
+        examinations = db.query(Examination).filter(Examination.doctor_id == current_user.id).all()
     else:  # PATIENT
-        examinations = db.query(Examination).filter(
-            Examination.patient_id == current_user.id
-        ).all()
-    
+        examinations = db.query(Examination).filter(Examination.patient_id == current_user.id).all()
+
     return examinations
 
 
@@ -546,34 +483,20 @@ def get_examination(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Получить конкретное обследование"""
     exam = db.query(Examination).filter(Examination.id == examination_id).first()
-    
     if not exam:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Examination not found"
-        )
-    
-    # Проверка прав доступа
-    if current_user.role == UserRole.PATIENT:
-        if exam.patient_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied"
-            )
-    elif current_user.role == UserRole.DOCTOR:
-        if exam.doctor_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied"
-            )
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Examination not found")
+
+    if current_user.role == UserRole.PATIENT and exam.patient_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    if current_user.role == UserRole.DOCTOR and exam.doctor_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     return exam
 
 
 # ============================================================================
-# MEDICAL FILE ENDPOINTS (НОВЫЕ!)
+# MEDICAL FILE ENDPOINTS
 # ============================================================================
 @app.post("/examinations/{examination_id}/upload-file")
 async def upload_medical_file(
@@ -582,23 +505,13 @@ async def upload_medical_file(
     current_user: User = Depends(require_role([UserRole.DOCTOR])),
     db: Session = Depends(get_db)
 ):
-    """Загрузить медицинский файл к обследованию"""
-    # Проверяем, существует ли обследование
     exam = db.query(Examination).filter(Examination.id == examination_id).first()
     if not exam:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Examination not found"
-        )
-    
-    # Проверяем права (только врач этого обследования)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Examination not found")
+
     if exam.doctor_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-    
-    # Определяем тип файла
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     file_extension = file.filename.split('.')[-1].lower()
     if file_extension == 'dcm':
         file_type = 'DICOM'
@@ -607,115 +520,71 @@ async def upload_medical_file(
     elif file_extension in ['jpg', 'jpeg', 'png']:
         file_type = 'JPG'
     else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unsupported file type. Allowed: .dcm, .pdf, .jpg, .png"
-        )
-    
-    # ============================================
-    # ИСПРАВЛЕНИЕ: Читаем файл ОДИН РАЗ
-    # ============================================
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported file type")
+
     content = await file.read()
-    
-    # Сохраняем файл локально временно для DICOM парсинга
     temp_file_path = os.path.join(UPLOAD_DIR, f"temp_{file.filename}")
+
     with open(temp_file_path, "wb") as f:
         f.write(content)
-    
-    # Формируем путь в MinIO
+
     object_name = f"patient_{exam.patient_id}/exam_{examination_id}/{file.filename}"
-    
-    # Загружаем в MinIO используя bytes (а не файл!)
+
     try:
         from minio_storage import get_storage
         storage = get_storage()
-        
-        # Определяем content_type
+
         content_type_map = {
             'DICOM': 'application/dicom',
             'PDF': 'application/pdf',
             'JPG': 'image/jpeg'
         }
         content_type = content_type_map.get(file_type, 'application/octet-stream')
-        
-        # Загружаем bytes напрямую
+
         file_url = storage.upload_bytes(content, object_name, content_type)
-        
+
         if not file_url:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to upload file to storage"
-            )
-    
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to upload file")
+
     except Exception as e:
-        # Удаляем временный файл в случае ошибки
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Storage error: {str(e)}"
-        )
-    
-    # Парсим DICOM метаданные (если это DICOM)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Storage error: {str(e)}")
+
     file_metadata = {
         "original_filename": file.filename,
         "size_bytes": len(content)
     }
-    
+
     if file_type == 'DICOM':
         try:
             from dicom_parser import parse_dicom_file
             dicom_metadata = parse_dicom_file(temp_file_path)
-            
             if dicom_metadata:
                 file_metadata.update(dicom_metadata)
-                print(f"✅ DICOM parsed successfully: {dicom_metadata.get('modality', 'Unknown')} scan")
-            else:
-                print("⚠️ DICOM parsing failed, using basic metadata")
         except Exception as e:
-            print(f"⚠️ Error parsing DICOM: {str(e)}")
-    
-    # Удаляем временный файл
+            print(f"Error parsing DICOM: {str(e)}")
+
     if os.path.exists(temp_file_path):
         os.remove(temp_file_path)
-    
-    # Создаем запись в БД
+
     new_file = MedicalFile(
         examination_id=examination_id,
         file_url=file_url,
         file_type=file_type,
         file_metadata=file_metadata
     )
-    
+
     db.add(new_file)
     db.commit()
     db.refresh(new_file)
-    
+
     return {
         "message": "File uploaded successfully",
         "file_id": new_file.id,
         "file_type": file_type,
         "file_url": file_url,
         "size_bytes": len(content)
-    }
-
-    # Создаем запись в БД
-    new_file = MedicalFile(
-        examination_id=examination_id,
-        file_url=file_path,
-        file_type=file_type,
-        file_metadata=file_metadata
-    )
-    
-    db.add(new_file)
-    db.commit()
-    db.refresh(new_file)
-    
-    return {
-        "message": "File uploaded successfully",
-        "file_id": new_file.id,
-        "file_type": file_type,
-        "file_url": file_path
     }
 
 
@@ -725,28 +594,21 @@ def get_examination_files(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Получить все файлы обследования"""
-    # Проверяем права доступа к обследованию
     exam = db.query(Examination).filter(Examination.id == examination_id).first()
     if not exam:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Examination not found"
-        )
-    
-    if current_user.role == UserRole.PATIENT:
-        if exam.patient_id != current_user.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    elif current_user.role == UserRole.DOCTOR:
-        if exam.doctor_id != current_user.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Examination not found")
+
+    if current_user.role == UserRole.PATIENT and exam.patient_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    if current_user.role == UserRole.DOCTOR and exam.doctor_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     files = db.query(MedicalFile).filter(MedicalFile.examination_id == examination_id).all()
     return files
 
 
 # ============================================================================
-# ML PREDICTION ENDPOINTS (ОБНОВЛЁННЫЕ!)
+# ML PREDICTION ENDPOINTS
 # ============================================================================
 
 @app.post("/examinations/{examination_id}/predict", response_model=RiskPredictionResponse)
@@ -756,50 +618,63 @@ async def create_risk_prediction(
     current_user: User = Depends(require_role([UserRole.DOCTOR, UserRole.ADMIN])),
     db: Session = Depends(get_db)
 ):
-    """Получить предсказание риска для обследования (только врачи и админы)"""
-    # Проверяем обследование
+    # 1. Проверка существования обследования
     exam = db.query(Examination).filter(Examination.id == examination_id).first()
     if not exam:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Examination not found"
-        )
-    
-    # Отправляем данные в ML сервис
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Examination not found")
+
     try:
+        # 2. Запрос к твоему ML-сервису
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{PREDICTION_SERVICE_URL}/predict",
                 json=prediction_data.dict()
             )
+            # Если твой сервис вернет ошибку (400, 500), это вызовет исключение здесь
             response.raise_for_status()
             prediction_result = response.json()
-        
-        # Сохраняем результат в БД
+
+        # --- ОТЛАДКА: Амир увидит это в логах докера ---
+        print(f"DEBUG: ML Service raw response: {prediction_result}")
+
+        # 3. Безопасное определение RiskLevel
+        # Важно: Приводим к нижнему регистру и проверяем наличие в Enum
+        raw_risk_val = str(prediction_result.get('risk_level', 'low')).lower()
+        try:
+            valid_risk_level = RiskLevel(raw_risk_val)
+        except ValueError:
+            print(f"WARNING: Unknown risk_level '{raw_risk_val}'. Falling back to 'low'")
+            valid_risk_level = RiskLevel.low
+
+        # 4. Создание записи в БД
         new_prediction = RiskPrediction(
             examination_id=examination_id,
-            risk_score=prediction_result['risk_score'],
-            risk_level=RiskLevel(prediction_result['risk_level']),
-            ml_model_version="v1.0",  # TODO: получать из ML сервиса
-            explanation={"recommendations": prediction_result.get('recommendations', [])}
+            risk_score=float(prediction_result.get('risk_score', 0.0)),
+            risk_level=valid_risk_level,
+            ml_model_version=prediction_result.get('model_version', "v1.0"),
+            # Оборачиваем всё в словарь, чтобы SQLAlchemy сожрала это как JSONB
+            explanation={
+                "recommendations": prediction_result.get('recommendations', []),
+                "feature_impacts": prediction_result.get('feature_impacts', {}),
+                "generated_at": datetime.utcnow().isoformat()
+            }
         )
-        
+
         db.add(new_prediction)
         db.commit()
         db.refresh(new_prediction)
-        
+
         return new_prediction
-    
-    except httpx.HTTPError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Prediction service error: {str(e)}"
-        )
+
+    except httpx.HTTPStatusError as e:
+        print(f"ERR: ML Service returned {e.response.status_code}: {e.response.text}")
+        raise HTTPException(status_code=502, detail="ML Service Error")
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
-        )
+        # ПЕЧАТАЕМ ПОЛНУЮ ОШИБКУ В КОНСОЛЬ
+        print("!!! CRITICAL ERROR IN CORE SERVICE !!!")
+        import traceback
+        traceback.print_exc() 
+        raise HTTPException(status_code=500, detail=f"Database or Core Error: {str(e)}")
 
 
 @app.get("/examinations/{examination_id}/predictions", response_model=List[RiskPredictionResponse])
@@ -808,37 +683,32 @@ def get_examination_predictions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Получить все прогнозы для обследования"""
-    # Проверяем права доступа
     exam = db.query(Examination).filter(Examination.id == examination_id).first()
     if not exam:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Examination not found")
-    
-    if current_user.role == UserRole.PATIENT:
-        if exam.patient_id != current_user.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    elif current_user.role == UserRole.DOCTOR:
-        if exam.doctor_id != current_user.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    
+
+    if current_user.role == UserRole.PATIENT and exam.patient_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    if current_user.role == UserRole.DOCTOR and exam.doctor_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     predictions = db.query(RiskPrediction).filter(
         RiskPrediction.examination_id == examination_id
     ).all()
-    
+
     return predictions
 
 
 @app.get("/predict-test")
 async def get_prediction_test():
-    """Тестовый endpoint для проверки связи с ML сервисом"""
     test_data = {
         "age": 45,
-        "sex": 1,  # male
+        "sex": 1,
         "cholesterol": 200,
-        "fbs": 0,  # normal
-        "restecg": 0  # normal
+        "fbs": 0,
+        "restecg": 0
     }
-    
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
@@ -847,13 +717,13 @@ async def get_prediction_test():
             )
             response.raise_for_status()
             prediction_result = response.json()
-        
+
         return {
             "status": "Connection successful",
             "test_data": test_data,
             "prediction_result": prediction_result
         }
-    
+
     except httpx.HTTPError as e:
         return {
             "status": "Connection failed",
@@ -868,7 +738,6 @@ async def get_prediction_test():
 
 @app.get("/debug/db-stats")
 def debug_db_stats(db: Session = Depends(get_db)):
-    """Статистика базы данных"""
     return {
         "total_users": db.query(User).count(),
         "admins": db.query(User).filter(User.role == UserRole.ADMIN).count(),

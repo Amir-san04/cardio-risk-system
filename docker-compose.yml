@@ -78,7 +78,7 @@ services:
     container_name: cardio_prediction
     ports:
       - "8001:8001"
-    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
     volumes:
       - ./prediction-service:/app
     restart: unless-stopped
