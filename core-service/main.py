@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -39,7 +40,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base.metadata.create_all(bind=engine)
 
 # ============================================================================
-# FASTAPI APP + CORS
+# FASTAPI APP
 # ============================================================================
 
 app = FastAPI(
@@ -48,14 +49,38 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS — самый первый!
+# ============================================================================
+# CORS - КРИТИЧЕСКИ ВАЖНО ДЛЯ GITHUB CODESPACES
+# ============================================================================
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Разрешить ВСЕ origins (для разработки)
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # GET, POST, PUT, DELETE, OPTIONS
+    allow_headers=["*"],  # Content-Type, Authorization, и т.д.
+    expose_headers=["*"],
 )
+
+# ============================================================================
+# ЯВНЫЙ OPTIONS HANDLER ДЛЯ PREFLIGHT
+# ============================================================================
+
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """Обработчик preflight запросов для CORS"""
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, Origin",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "3600",
+        }
+    )
+
+# Остальной код остаётся БЕЗ ИЗМЕНЕНИЙ...
 
 # Исключаем OPTIONS из проверки авторизации — чтобы preflight прошёл
 @app.options("/{path:path}")

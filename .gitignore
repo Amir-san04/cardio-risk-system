@@ -39,3 +39,6 @@ Thumbs.db
 *.db
 *.sqlite3
 EOF
+# Environment files
+.env.local
+frontend/.env.local
