@@ -161,9 +161,14 @@ class UserResponse(BaseModel):
 class PredictionRequest(BaseModel):
     age: int
     sex: int
+    cp: int          # Тип боли в груди (1-4)
+    trestbps: int    # Артериальное давление
     cholesterol: int
     fbs: int
     restecg: int
+    thalach: int     # Макс. пульс
+    oldpeak: float   # Депрессия ST
+    ca: float        # Количество сосудов
 
     @validator('sex')
     def validate_sex(cls, v):
@@ -726,12 +731,18 @@ def get_examination_predictions(
 
 @app.get("/predict-test")
 async def get_prediction_test():
+    # Данные для теста теперь содержат все 11 полей
     test_data = {
         "age": 45,
         "sex": 1,
-        "cholesterol": 200,
+        "cp": 3,
+        "trestbps": 130,
+        "cholesterol": 233,
         "fbs": 0,
-        "restecg": 0
+        "restecg": 0,
+        "thalach": 150,
+        "oldpeak": 2.3,
+        "ca": 0.0,
     }
 
     try:
