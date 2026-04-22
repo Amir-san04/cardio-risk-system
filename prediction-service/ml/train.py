@@ -40,6 +40,73 @@ y = df["target"]
 # Если в target значения > 1 (стадии болезни), превращаем в бинарную классификацию (0 - здоров, 1 - болен)
 y = (y > 0).astype(int)
 
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import cross_validate
+
+print("\n🔍 Сравнение моделей (Cross-Validation)...")
+
+models = {
+    "Logistic Regression": LogisticRegression(max_iter=1000, class_weight='balanced'),
+    "Decision Tree": DecisionTreeClassifier(random_state=42),
+    "Random Forest": RandomForestClassifier(random_state=42),
+    "KNN": KNeighborsClassifier(),
+    "Gradient Boosting": GradientBoostingClassifier(random_state=42)
+}
+
+scoring = {
+    'accuracy': 'accuracy',
+    'precision': 'precision',
+    'recall': 'recall',
+    'f1': 'f1'
+}
+
+results = {}
+
+for name, model in models.items():
+    pipeline = Pipeline([
+        ("scaler", StandardScaler()),
+        ("model", model)
+    ])
+    
+    scores = cross_validate(pipeline, X, y, cv=5, scoring=scoring)
+    
+    results[name] = {
+        'accuracy': scores['test_accuracy'].mean(),
+        'precision': scores['test_precision'].mean(),
+        'recall': scores['test_recall'].mean(),
+        'f1': scores['test_f1'].mean()
+    }
+
+# 🔥 Итоговый скор (взвешенный)
+weights = {
+    'accuracy': 0.2,
+    'precision': 0.2,
+    'recall': 0.3,
+    'f1': 0.3
+}
+
+final_scores = {}
+
+for name, metrics in results.items():
+    score = sum(metrics[m] * weights[m] for m in weights)
+    final_scores[name] = score
+
+# Вывод
+print("\n📊 Результаты моделей:")
+for name, metrics in results.items():
+    print(f"\n{name}:")
+    for metric, value in metrics.items():
+        print(f"  {metric}: {value:.3f}")
+
+print("\n🏆 Итоговые scores:")
+for name, score in final_scores.items():
+    print(f"{name}: {score:.3f}")
+
+best_model_name = max(final_scores, key=final_scores.get)
+print(f"\n🔥 ЛУЧШАЯ МОДЕЛЬ: {best_model_name}")
+
 # 4. Разделение данных
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
