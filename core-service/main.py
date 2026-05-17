@@ -783,3 +783,59 @@ def debug_db_stats(db: Session = Depends(get_db)):
         "medical_files": db.query(MedicalFile).count(),
         "risk_predictions": db.query(RiskPrediction).count()
     }
+
+@app.post("/examinations/{examination_id}/predict-ecg", response_model=RiskPredictionResponse)
+async def create_ecg_prediction(
+    examination_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role([UserRole.DOCTOR, UserRole.ADMIN])),
+    db: Session = Depends(get_db)
+):
+    exam = db.query(Examination).filter(Examination.id == examination_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Examination not found")
+
+    try:
+        contents = await file.read()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{PREDICTION_SERVICE_URL}/predict-ecg",
+                files={"file": (file.filename, contents, file.content_type)}
+            )
+            response.raise_for_status()
+            result = response.json()
+
+        print(f"DEBUG ECG: {result}")
+
+        raw_risk = str(result.get("risk_level", "low")).lower()
+        try:
+            valid_risk_level = RiskLevel(raw_risk)
+        except ValueError:
+            valid_risk_level = RiskLevel.low
+
+        new_prediction = RiskPrediction(
+            examination_id=examination_id,
+            risk_score=float(result.get("risk_score", 0.0)),
+            risk_level=valid_risk_level,
+            ml_model_version=result.get("model_type", "ECG-CNN-v1"),
+            explanation={
+                "ecg_class":       result.get("ecg_class"),
+                "normal_prob":     result.get("normal_prob"),
+                "abnormal_prob":   result.get("abnormal_prob"),
+                "recommendations": result.get("recommendations", []),
+                "generated_at":    datetime.utcnow().isoformat()
+            }
+        )
+        db.add(new_prediction)
+        db.commit()
+        db.refresh(new_prediction)
+        return new_prediction
+
+    except httpx.HTTPStatusError as e:
+        print(f"ERR ECG: ML Service {e.response.status_code}: {e.response.text}")
+        raise HTTPException(status_code=502, detail="ECG ML Service Error")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"ECG Prediction Error: {str(e)}")

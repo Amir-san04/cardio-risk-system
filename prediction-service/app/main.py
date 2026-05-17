@@ -156,3 +156,63 @@ def batch_predict(patients: List[PredictionRequest]):
         except Exception as e:
             results.append({"input": patient.dict(), "error": str(e)})
     return {"total": len(patients), "results": results}
+# ==================== ECG IMAGE PREDICTION ====================
+import torch
+import torch.nn as nn
+from torchvision import transforms, models
+from PIL import Image
+import io
+from fastapi import UploadFile, File
+
+# Загрузка ECG модели
+def load_ecg_model():
+    m = models.efficientnet_b0(weights=None)
+    m.classifier[1] = nn.Linear(m.classifier[1].in_features, 2)
+    state = torch.load("models/ecg_model.pt", map_location="cpu")
+    m.load_state_dict(state)
+    m.eval()
+    return m
+
+ecg_model = load_ecg_model()
+ECG_CLASSES = ["Abnormal", "Normal"]  # порядок как в ImageFolder
+
+ecg_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+@app.post("/predict-ecg")
+async def predict_ecg(file: UploadFile = File(...)):
+    contents = await file.read()
+    image = Image.open(io.BytesIO(contents)).convert("RGB")
+    tensor = ecg_transform(image).unsqueeze(0)
+
+    with torch.no_grad():
+        probs = torch.softmax(ecg_model(tensor), dim=1)[0]
+
+    abnormal_prob = probs[0].item()  # индекс 0 = Abnormal
+    normal_prob   = probs[1].item()
+
+    if abnormal_prob < 0.3:
+        risk_level = "low"
+    elif abnormal_prob < 0.7:
+        risk_level = "medium"
+    else:
+        risk_level = "high"
+
+    recommendations = {
+        "low":    ["ЭКГ в норме. Плановый осмотр через 1 год."],
+        "medium": ["Выявлены изменения ЭКГ. Рекомендована консультация кардиолога.", "Рассмотрите Холтер-мониторинг."],
+        "high":   ["Критические изменения ЭКГ. Срочная консультация кардиолога!", "Возможна госпитализация."]
+    }
+
+    return {
+        "ecg_class":       ECG_CLASSES[probs.argmax().item()],
+        "normal_prob":     round(normal_prob, 4),
+        "abnormal_prob":   round(abnormal_prob, 4),
+        "risk_score":      round(abnormal_prob, 4),
+        "risk_level":      risk_level,
+        "recommendations": recommendations[risk_level],
+        "model_type":      "ECG-CNN-EfficientNetB0-v1"
+    }

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getExaminations, requestPrediction } from '../services/api';
 import useAuthStore from '../store/authStore';
 import DicomUploader from '../components/DicomUploader';
+import EcgUpload from '../components/EcgUpload';
 
 const COLORS = { high: '#ef4444', medium: '#f59e0b', low: '#10b981' };
 
@@ -277,6 +278,7 @@ export default function RiskAssessment() {
               <span className="mr-2">📁</span> DICOM Uploader
             </h3>
             <DicomUploader examinationId={selectedExam.id} onUploadSuccess={() => alert('Снимки загружены')} />
+            <EcgUpload examinationId={selectedExam.id} token={localStorage.getItem('token')} />
           </div>
         )}
 
