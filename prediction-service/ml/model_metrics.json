@@ -1,0 +1,48 @@
+{
+  "logistic_regression": {
+    "accuracy": 0.8333,
+    "precision": 0.7692,
+    "recall": 0.8333,
+    "f1_score": 0.8,
+    "roc_auc": 0.9132,
+    "confusion_matrix": [
+      [
+        30,
+        6
+      ],
+      [
+        4,
+        20
+      ]
+    ],
+    "test_samples": 60,
+    "train_samples": 237,
+    "features": [
+      "age",
+      "sex",
+      "cp",
+      "trestbps",
+      "cholesterol",
+      "fbs",
+      "restecg",
+      "thalach",
+      "oldpeak",
+      "ca"
+    ],
+    "dataset": "UCI Heart Disease (Cleveland)",
+    "model_version": "v1.0"
+  },
+  "ecg_cnn": {
+    "accuracy": 0.8,
+    "model": "EfficientNet-B0",
+    "dataset": "MIT-BIH Arrhythmia Database",
+    "train_samples": 800,
+    "val_samples": 200,
+    "epochs": 10,
+    "classes": [
+      "Normal",
+      "Abnormal"
+    ],
+    "best_epoch": 9
+  }
+}

@@ -217,3 +217,13 @@ async def predict_ecg(file: UploadFile = File(...)):
         "recommendations": recommendations[risk_level],
         "model_type":      "ECG-CNN-EfficientNetB0-v1"
     }
+
+
+@app.get("/model-metrics")
+async def get_model_metrics():
+    import json, os
+    metrics_path = "ml/model_metrics.json"
+    if not os.path.exists(metrics_path):
+        raise HTTPException(status_code=404, detail="Metrics not found")
+    with open(metrics_path) as f:
+        return json.load(f)

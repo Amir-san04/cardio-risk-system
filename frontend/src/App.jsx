@@ -9,6 +9,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Unauthorized from './pages/Unauthorized';
 import PatientsTable from './components/PatientsTable';
+import ModelMetrics from './pages/ModelMetrics';
 
 function ProtectedRoute({ children, allowedRoles = [] }) {
   const { token, role } = useAuthStore();
@@ -58,6 +59,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/model-metrics" element={<ProtectedRoute allowedRoles={['doctor','admin']}><ModelMetrics /></ProtectedRoute>} />
           <Route
             path="/patients"
             element={

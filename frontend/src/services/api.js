@@ -99,3 +99,7 @@ export const requestPrediction = async (examinationId, predictionData) => {
 };
 
 export default api;
+export const getModelMetrics = async () => {
+  const res = await api.get('/model-metrics');
+  return res.data;
+};

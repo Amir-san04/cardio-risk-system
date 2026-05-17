@@ -879,3 +879,10 @@ async def create_ecg_prediction(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"ECG Prediction Error: {str(e)}")
+
+
+@app.get("/model-metrics")
+async def get_model_metrics():
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{PREDICTION_SERVICE_URL}/model-metrics")
+        return r.json()

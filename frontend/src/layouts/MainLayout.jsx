@@ -12,6 +12,7 @@ export default function MainLayout() {
     { to:'/dashboard', icon:'📊', label:'Dashboard', roles:['doctor','patient','admin'] },
     { to:'/patients', icon:'👥', label:'Пациенты', roles:['doctor','admin'] },
     { to:'/risk-assessment', icon:'🫀', label:'Оценка риска', roles:['doctor','patient'] },
+    { to:'/model-metrics', icon:'📈', label:'Метрики моделей', roles:['doctor','admin'] },
   ].filter(item => item.roles.includes(role?.toLowerCase()));
 
   const roleLabel = { doctor:'Врач', patient:'Пациент', admin:'Администратор' }[role?.toLowerCase()] || role;
