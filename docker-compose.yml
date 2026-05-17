@@ -94,12 +94,6 @@ services:
     container_name: cardio_frontend
     ports:
       - "5173:5173"
-    environment:
-      - VITE_CORE_API_URL=https://cuddly-waddle-69gxgjvpvw9gf5p7q-8000.app.github.dev
-    command: npm run dev -- --host 0.0.0.0
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
     depends_on:
       - core-service
     restart: unless-stopped

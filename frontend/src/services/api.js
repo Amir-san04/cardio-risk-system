@@ -2,7 +2,7 @@ import axios from 'axios';
 import useAuthStore from '../store/authStore';
 
 // Берем URL из переменных окружения или используем локальный адрес по умолчанию
-const CORE_BASE_URL = import.meta.env.VITE_CORE_API_URL || 'http://localhost:8000';
+const CORE_BASE_URL = '/api';
 
 // 1. Создаём инстанс с базовыми настройками
 const api = axios.create({

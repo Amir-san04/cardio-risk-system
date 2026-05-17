@@ -55,7 +55,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Разрешить ВСЕ origins (для разработки)
+    allow_origins=["*"], allow_origin_regex=".*",  # Разрешить ВСЕ origins (для разработки)
     allow_credentials=True,
     allow_methods=["*"],  # GET, POST, PUT, DELETE, OPTIONS
     allow_headers=["*"],  # Content-Type, Authorization, и т.д.
@@ -202,6 +202,15 @@ class ExaminationCreate(BaseModel):
         return v
 
 
+
+class PatientBrief(BaseModel):
+    id: int
+    full_name: str
+    birth_date: Optional[date]
+    gender: Optional[str]
+    class Config:
+        from_attributes = True
+
 class ExaminationResponse(BaseModel):
     id: int
     doctor_id: int
@@ -210,6 +219,9 @@ class ExaminationResponse(BaseModel):
     exam_type: str
     complaints: Optional[str]
     created_at: datetime
+    patient: Optional[dict] = None
+    latest_risk_level: Optional[str] = None
+    latest_risk_score: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -492,19 +504,46 @@ def create_examination(
     return new_exam
 
 
-@app.get("/examinations", response_model=List[ExaminationResponse])
+@app.get("/examinations", response_model=List[dict])
 def get_examinations(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     if current_user.role == UserRole.ADMIN:
-        examinations = db.query(Examination).all()
+        examinations = db.query(Examination).order_by(Examination.created_at.desc()).all()
     elif current_user.role == UserRole.DOCTOR:
-        examinations = db.query(Examination).filter(Examination.doctor_id == current_user.id).all()
-    else:  # PATIENT
-        examinations = db.query(Examination).filter(Examination.patient_id == current_user.id).all()
+        examinations = db.query(Examination).filter(
+            Examination.doctor_id == current_user.id
+        ).order_by(Examination.created_at.desc()).all()
+    else:
+        examinations = db.query(Examination).filter(
+            Examination.patient_id == current_user.id
+        ).order_by(Examination.created_at.desc()).all()
 
-    return examinations
+    result = []
+    for exam in examinations:
+        patient = db.query(User).filter(User.id == exam.patient_id).first()
+        latest = db.query(RiskPrediction).filter(
+            RiskPrediction.examination_id == exam.id
+        ).order_by(RiskPrediction.created_at.desc()).first()
+        result.append({
+            "id": exam.id,
+            "doctor_id": exam.doctor_id,
+            "patient_id": exam.patient_id,
+            "exam_date": exam.exam_date.isoformat(),
+            "exam_type": exam.exam_type,
+            "complaints": exam.complaints,
+            "created_at": exam.created_at.isoformat(),
+            "patient": {
+                "id": patient.id,
+                "full_name": patient.full_name,
+                "birth_date": patient.birth_date.isoformat() if patient.birth_date else None,
+                "gender": patient.gender,
+            } if patient else None,
+            "latest_risk_level": latest.risk_level.value if latest else None,
+            "latest_risk_score": float(latest.risk_score) if latest else None,
+        })
+    return result
 
 
 @app.get("/examinations/{examination_id}", response_model=ExaminationResponse)
