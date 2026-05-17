@@ -1,193 +1,191 @@
 import { useEffect, useState } from 'react';
-import { Navigate, Link } from 'react-router-dom';
+import { Navigate, Link, useNavigate } from 'react-router-dom';
 import { getExaminations } from '../services/api';
 import useAuthStore from '../store/authStore';
-import PatientsTable from '../components/PatientsTable';
-import DicomUploader from '../components/DicomUploader';
-import CreateExaminationModal from '../components/CreateExaminationModal'; // Импорт новой модалки
+import CreateExaminationModal from '../components/CreateExaminationModal';
 
 export default function Dashboard() {
-  const role = useAuthStore((state) => state.role?.toLowerCase() || 'guest');
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated());
-
+  const role = useAuthStore(s => s.role?.toLowerCase() || 'guest');
+  const isAuthenticated = useAuthStore(s => s.isAuthenticated());
   const [examinations, setExaminations] = useState([]);
-  const [isModalOpen, setIsModalOpen] = useState(false); // Состояние для модалки
-  const [stats, setStats] = useState({
-    totalPatients: 0,
-    highRisk: 0,
-    mediumRisk: 0,
-    todayAppointments: 0,
-  });
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
-  // Выносим загрузку данных в отдельную функцию, чтобы вызывать её повторно
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const data = await getExaminations();
-      const exams = Array.isArray(data) ? data : [];
-      setExaminations(exams);
-
-      // Расчет статистики
-      const high = exams.filter((e) => e.risk_level?.toLowerCase() === 'high risk').length;
-      const medium = exams.filter((e) => e.risk_level?.toLowerCase() === 'medium risk').length;
-      const uniquePatients = new Set(exams.map((e) => e.patient_id)).size;
-
-      setStats({
-        totalPatients: uniquePatients,
-        highRisk: high,
-        mediumRisk: medium,
-        todayAppointments: exams.length,
-      });
-    } catch (err) {
-      setError('Не удалось загрузить данные. Проверьте соединение с бэкендом.');
-      console.error('Dashboard error:', err);
-    } finally {
-      setLoading(false);
-    }
+  const stats = {
+    total: new Set(examinations.map(e => e.patient_id)).size,
+    high: examinations.filter(e => e.latest_risk_level?.toLowerCase() === 'high').length,
+    medium: examinations.filter(e => e.latest_risk_level?.toLowerCase() === 'medium').length,
+    all: examinations.length,
   };
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchData();
-    }
-  }, [isAuthenticated]);
+  const fetchData = async () => {
+    try {
+      setLoading(true); setError(null);
+      const data = await getExaminations();
+      setExaminations(Array.isArray(data) ? data : []);
+    } catch { setError('Не удалось загрузить данные'); }
+    finally { setLoading(false); }
+  };
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
+  useEffect(() => { if (isAuthenticated) fetchData(); }, [isAuthenticated]);
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
 
-  if (loading && examinations.length === 0) {
+  const statCards = [
+    { label:'Всего пациентов', value:stats.total, color:'#1a6bb5', bg:'#eff6ff', icon:'👥' },
+    { label:'Высокий риск', value:stats.high, color:'#dc2626', bg:'#fef2f2', icon:'🔴' },
+    { label:'Средний риск', value:stats.medium, color:'#d97706', bg:'#fffbeb', icon:'🟡' },
+    { label:'Обследований', value:stats.all, color:'#0d7f8f', bg:'#f0fdfa', icon:'📋' },
+  ];
+
+  const riskBadge = (level) => {
+    const cfg = {
+      high:   { bg:'#fef2f2', color:'#dc2626', label:'Высокий' },
+      medium: { bg:'#fffbeb', color:'#d97706', label:'Средний' },
+      low:    { bg:'#f0fdf4', color:'#16a34a', label:'Низкий' },
+    }[level?.toLowerCase()] || { bg:'#f8fafc', color:'#94a3b8', label:'—' };
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Загрузка панели...</p>
-        </div>
-      </div>
+      <span style={{ background:cfg.bg, color:cfg.color, padding:'0.2rem 0.65rem',
+        borderRadius:'20px', fontSize:'0.75rem', fontWeight:600 }}>
+        {cfg.label}
+      </span>
     );
-  }
+  };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Клиническая панель</h1>
-        
-        {/* Кнопка создания доступна врачам и админам */}
-        {['doctor', 'admin'].includes(role) && (
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-medium transition shadow-md"
-          >
-            + Назначить обследование
+    <div style={{ fontFamily:"'DM Sans',sans-serif", maxWidth:'1200px', margin:'0 auto' }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');`}</style>
+
+      {/* Header */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'2rem' }}>
+        <div>
+          <h1 style={{ fontSize:'1.75rem', fontWeight:700, color:'#0f172a', margin:0 }}>Клиническая панель</h1>
+          <p style={{ color:'#64748b', margin:'0.25rem 0 0', fontSize:'0.9rem' }}>
+            {new Date().toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
+          </p>
+        </div>
+        {['doctor','admin'].includes(role) && (
+          <button onClick={() => setIsModalOpen(true)}
+            style={{ display:'flex', alignItems:'center', gap:'0.5rem', padding:'0.75rem 1.5rem',
+              borderRadius:'12px', border:'none', cursor:'pointer', fontFamily:'inherit',
+              background:'linear-gradient(135deg,#1a6bb5,#0d7f8f)', color:'white',
+              fontSize:'0.9rem', fontWeight:600, boxShadow:'0 4px 12px rgba(26,107,181,0.3)' }}>
+            <span style={{ fontSize:'1.1rem' }}>+</span> Новое обследование
           </button>
         )}
       </div>
 
-      {/* Карточки статистики */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-sm text-gray-500 font-medium">Всего пациентов</p>
-          <p className="text-4xl font-bold text-indigo-700 mt-2">{stats.totalPatients}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-sm text-gray-500 font-medium">Высокий риск</p>
-          <p className="text-4xl font-bold text-red-600 mt-2">{stats.highRisk}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-sm text-gray-500 font-medium">Средний риск</p>
-          <p className="text-4xl font-bold text-yellow-600 mt-2">{stats.mediumRisk}</p>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-sm text-gray-500 font-medium">Приёмов сегодня</p>
-          <p className="text-4xl font-bold text-blue-600 mt-2">{stats.todayAppointments}</p>
-        </div>
+      {/* Stat cards */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'1.25rem', marginBottom:'2rem' }}>
+        {statCards.map((c,i) => (
+          <div key={i} style={{ background:'white', borderRadius:'16px', padding:'1.5rem',
+            boxShadow:'0 2px 8px rgba(0,0,0,0.06)', border:'1px solid #f1f5f9' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+              <div>
+                <p style={{ fontSize:'0.8rem', color:'#64748b', fontWeight:500, margin:0 }}>{c.label}</p>
+                <p style={{ fontSize:'2rem', fontWeight:700, color:c.color, margin:'0.5rem 0 0' }}>
+                  {loading ? '—' : c.value}
+                </p>
+              </div>
+              <div style={{ width:'44px', height:'44px', borderRadius:'12px', background:c.bg,
+                display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.2rem' }}>
+                {c.icon}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg border border-red-200">
-          {error}
+        <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:'12px',
+          padding:'1rem', marginBottom:'1.5rem', color:'#dc2626', fontSize:'0.9rem' }}>
+          ⚠️ {error}
         </div>
       )}
 
-      {/* Секция DICOM */}
-      {role === 'doctor' && (
-        <div className="mb-12 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-xl font-semibold mb-4 text-gray-800">Загрузить DICOM-файл</h2>
-          <DicomUploader onUploadSuccess={fetchData} />
-        </div>
-      )}
-
-      {/* Список последних обследований */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-6 border-b border-gray-200 bg-gray-50/50">
-          <h2 className="text-xl font-semibold text-gray-800">Последние обследования</h2>
+      {/* Recent examinations */}
+      <div style={{ background:'white', borderRadius:'16px', boxShadow:'0 2px 8px rgba(0,0,0,0.06)',
+        border:'1px solid #f1f5f9', overflow:'hidden' }}>
+        <div style={{ padding:'1.25rem 1.5rem', borderBottom:'1px solid #f1f5f9',
+          display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <h2 style={{ fontSize:'1rem', fontWeight:600, color:'#0f172a', margin:0 }}>Последние обследования</h2>
+          <span style={{ fontSize:'0.8rem', color:'#94a3b8' }}>{examinations.length} записей</span>
         </div>
 
-        {examinations.length === 0 ? (
-          <div className="p-10 text-center text-gray-500">
-            Нет данных для отображения. Создайте первое обследование.
+        {loading ? (
+          <div style={{ padding:'3rem', textAlign:'center' }}>
+            <div style={{ width:'36px', height:'36px', border:'3px solid #e2e8f0',
+              borderTopColor:'#1a6bb5', borderRadius:'50%', margin:'0 auto',
+              animation:'spin 0.8s linear infinite' }} />
+            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            <p style={{ color:'#94a3b8', marginTop:'1rem', fontSize:'0.9rem' }}>Загрузка...</p>
+          </div>
+        ) : examinations.length === 0 ? (
+          <div style={{ padding:'3rem', textAlign:'center' }}>
+            <div style={{ fontSize:'3rem', marginBottom:'1rem' }}>📋</div>
+            <p style={{ color:'#64748b', fontSize:'0.95rem' }}>Нет обследований. Создайте первое.</p>
+            {['doctor','admin'].includes(role) && (
+              <button onClick={() => setIsModalOpen(true)}
+                style={{ marginTop:'1rem', padding:'0.6rem 1.5rem', borderRadius:'10px', border:'none',
+                  background:'linear-gradient(135deg,#1a6bb5,#0d7f8f)', color:'white',
+                  fontSize:'0.875rem', fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+                + Создать обследование
+              </button>
+            )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Пациент</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Дата</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Тип</th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Действия</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {examinations.slice(0, 10).map((exam) => (
-                  <tr key={exam.id} className="hover:bg-gray-50 transition">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {exam.patient?.full_name || `ID: ${exam.patient_id}`}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(exam.exam_date).toLocaleDateString('ru-RU')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium">
-                        {exam.exam_type || 'General'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <Link to={`/risk-assessment`} className="text-indigo-600 hover:text-indigo-900 mr-4">
-                        Прогноз
-                      </Link>
-                      <Link to={`/examinations/${exam.id}`} className="text-gray-400 hover:text-gray-600">
-                        Детали
-                      </Link>
-                    </td>
-                  </tr>
+          <table style={{ width:'100%', borderCollapse:'collapse' }}>
+            <thead>
+              <tr style={{ background:'#f8fafc' }}>
+                {['Пациент','Дата','Тип','Риск','Действия'].map(h => (
+                  <th key={h} style={{ padding:'0.875rem 1.5rem', textAlign:'left',
+                    fontSize:'0.75rem', fontWeight:600, color:'#64748b', textTransform:'uppercase',
+                    letterSpacing:'0.05em', borderBottom:'1px solid #f1f5f9' }}>
+                    {h}
+                  </th>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </tr>
+            </thead>
+            <tbody>
+              {examinations.slice(0,10).map((exam,i) => (
+                <tr key={exam.id}
+                  style={{ borderBottom: i < Math.min(examinations.length,10)-1 ? '1px solid #f8fafc' : 'none' }}
+                  onMouseOver={e=>e.currentTarget.style.background='#fafbff'}
+                  onMouseOut={e=>e.currentTarget.style.background='white'}>
+                  <td style={{ padding:'1rem 1.5rem' }}>
+                    <div style={{ fontWeight:600, color:'#0f172a', fontSize:'0.9rem' }}>
+                      {exam.patient?.full_name || `Пациент #${exam.patient_id}`}
+                    </div>
+                  </td>
+                  <td style={{ padding:'1rem 1.5rem', color:'#64748b', fontSize:'0.875rem' }}>
+                    {new Date(exam.exam_date).toLocaleDateString('ru-RU')}
+                  </td>
+                  <td style={{ padding:'1rem 1.5rem' }}>
+                    <span style={{ background:'#eff6ff', color:'#1a6bb5', padding:'0.2rem 0.65rem',
+                      borderRadius:'20px', fontSize:'0.75rem', fontWeight:600 }}>
+                      {exam.exam_type || 'General'}
+                    </span>
+                  </td>
+                  <td style={{ padding:'1rem 1.5rem' }}>
+                    {riskBadge(exam.latest_risk_level)}
+                  </td>
+                  <td style={{ padding:'1rem 1.5rem' }}>
+                    <button onClick={() => navigate(`/risk-assessment/${exam.id}`)}
+                      style={{ padding:'0.4rem 1rem', borderRadius:'8px', border:'none',
+                        background:'linear-gradient(135deg,#1a6bb5,#0d7f8f)', color:'white',
+                        fontSize:'0.8rem', fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+                      Прогноз →
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
-      {/* Таблица пациентов */}
-      {['doctor', 'admin'].includes(role) && (
-        <div className="mt-12">
-          <div className="mb-4">
-            <h2 className="text-2xl font-bold text-gray-800">Управление пациентами</h2>
-          </div>
-          <PatientsTable />
-        </div>
-      )}
-
-      {/* Модальное окно */}
-      <CreateExaminationModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onCreated={fetchData} // Обновляем данные после создания
-      />
+      <CreateExaminationModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onCreated={fetchData} />
     </div>
   );
 }
