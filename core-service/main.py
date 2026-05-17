@@ -797,11 +797,12 @@ async def create_ecg_prediction(
 
     try:
         contents = await file.read()
+        await file.seek(0)
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{PREDICTION_SERVICE_URL}/predict-ecg",
-                files={"file": (file.filename, contents, file.content_type)}
+                files={"file": (file.filename, contents, file.content_type or "image/png")}
             )
             response.raise_for_status()
             result = response.json()

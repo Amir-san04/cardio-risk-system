@@ -185,6 +185,7 @@ ecg_transform = transforms.Compose([
 @app.post("/predict-ecg")
 async def predict_ecg(file: UploadFile = File(...)):
     contents = await file.read()
+    print(f"DEBUG ECG: received {len(contents)} bytes, filename={file.filename}")
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     tensor = ecg_transform(image).unsqueeze(0)
 
