@@ -4,6 +4,7 @@ import { getExaminations, requestPrediction } from '../services/api';
 import useAuthStore from '../store/authStore';
 import DicomUploader from '../components/DicomUploader';
 import EcgUpload from '../components/EcgUpload';
+import ExportPDF from '../components/ExportPDF';
 
 const FONT = "'DM Sans', sans-serif";
 
@@ -343,6 +344,9 @@ export default function RiskAssessment() {
               <div style={{ padding:'0.75rem 1.5rem', background:'#f8fafc',
                 fontSize:'0.72rem', color:'#94a3b8', textAlign:'center' }}>
                 Модель: {prediction.ml_model_version}
+              </div>
+              <div style={{ padding:'1rem 1.5rem', borderTop:'1px solid #f1f5f9' }}>
+                <ExportPDF prediction={prediction} examination={selectedExam} patientName={selectedExam?.patient?.full_name} />
               </div>
             </div>
           ) : (

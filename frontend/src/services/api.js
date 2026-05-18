@@ -103,3 +103,13 @@ export const getModelMetrics = async () => {
   const res = await api.get('/model-metrics');
   return res.data;
 };
+
+export const getPatientProfile = async (patientId) => {
+  const res = await api.get(`/patients/${patientId}`);
+  return res.data;
+};
+
+export const getMyProfile = async () => {
+  const res = await api.get('/my-profile');
+  return res.data;
+};

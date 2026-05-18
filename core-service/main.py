@@ -886,3 +886,98 @@ async def get_model_metrics():
     async with httpx.AsyncClient(timeout=10.0) as client:
         r = await client.get(f"{PREDICTION_SERVICE_URL}/model-metrics")
         return r.json()
+
+
+@app.get("/patients/{patient_id}")
+def get_patient_profile(
+    patient_id: int,
+    current_user: User = Depends(require_role([UserRole.DOCTOR, UserRole.ADMIN])),
+    db: Session = Depends(get_db)
+):
+    patient = db.query(User).filter(User.id == patient_id, User.role == UserRole.PATIENT).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    examinations = db.query(Examination).filter(
+        Examination.patient_id == patient_id
+    ).order_by(Examination.created_at.desc()).all()
+
+    exams_data = []
+    for exam in examinations:
+        latest = db.query(RiskPrediction).filter(
+            RiskPrediction.examination_id == exam.id
+        ).order_by(RiskPrediction.created_at.desc()).first()
+        exams_data.append({
+            "id": exam.id,
+            "exam_date": exam.exam_date.isoformat(),
+            "exam_type": exam.exam_type,
+            "complaints": exam.complaints,
+            "created_at": exam.created_at.isoformat(),
+            "latest_risk_level": latest.risk_level.value if latest else None,
+            "latest_risk_score": float(latest.risk_score) if latest else None,
+        })
+
+    age = None
+    if patient.birth_date:
+        from datetime import date
+        today = date.today()
+        age = today.year - patient.birth_date.year - (
+            (today.month, today.day) < (patient.birth_date.month, patient.birth_date.day)
+        )
+
+    return {
+        "id": patient.id,
+        "full_name": patient.full_name,
+        "email": patient.email,
+        "birth_date": patient.birth_date.isoformat() if patient.birth_date else None,
+        "gender": patient.gender,
+        "phone": patient.phone,
+        "age": age,
+        "total_examinations": len(exams_data),
+        "examinations": exams_data,
+    }
+
+
+@app.get("/my-profile")
+def get_my_profile(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    examinations = db.query(Examination).filter(
+        Examination.patient_id == current_user.id
+    ).order_by(Examination.created_at.desc()).all()
+
+    exams_data = []
+    for exam in examinations:
+        latest = db.query(RiskPrediction).filter(
+            RiskPrediction.examination_id == exam.id
+        ).order_by(RiskPrediction.created_at.desc()).first()
+        exams_data.append({
+            "id": exam.id,
+            "exam_date": exam.exam_date.isoformat(),
+            "exam_type": exam.exam_type,
+            "complaints": exam.complaints,
+            "created_at": exam.created_at.isoformat(),
+            "latest_risk_level": latest.risk_level.value if latest else None,
+            "latest_risk_score": float(latest.risk_score) if latest else None,
+        })
+
+    age = None
+    if current_user.birth_date:
+        from datetime import date
+        today = date.today()
+        age = today.year - current_user.birth_date.year - (
+            (today.month, today.day) < (current_user.birth_date.month, current_user.birth_date.day)
+        )
+
+    return {
+        "id": current_user.id,
+        "full_name": current_user.full_name,
+        "email": current_user.email,
+        "birth_date": current_user.birth_date.isoformat() if current_user.birth_date else None,
+        "gender": current_user.gender,
+        "phone": current_user.phone,
+        "age": age,
+        "total_examinations": len(exams_data),
+        "examinations": exams_data,
+    }
